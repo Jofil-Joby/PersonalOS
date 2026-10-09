@@ -1,487 +1,340 @@
-﻿# PersonalOS â€” Development Roadmap
-Version: 1.0
+# PersonalOS — Development Roadmap
 
-## Development rule
+**Version:** 2.0  
+**Status:** Proposed implementation plan
 
-Build in dependency order.
+This roadmap describes intended work. Phase status should be updated only after inspecting the repository and verifying acceptance criteria.
 
-Database
-â†’ Events
-â†’ XP
-â†’ Attributes
-â†’ Goals/Tasks
-â†’ Daily OS
-â†’ Tracking
-â†’ Analytics
-â†’ AI
-â†’ Automation
-â†’ Gamification
-â†’ UI polish
+## 1. Development strategy
 
-Do not build a higher layer on an unstable lower layer.
+Build PersonalOS through vertical slices backed by stable foundations. Do not wait until every engine exists before building a usable screen, and do not polish screens that depend on business rules that have not been implemented.
 
----
+Principles:
+- Keep core behavior local-first and offline.
+- Make event processing, XP, and goal progress deterministic and testable.
+- Deliver a real user journey at each milestone.
+- Implement all tracking domains over time without flattening them into one generic schema.
+- Add AI and integrations after reliable data exists.
+- Treat migration, export, deletion, and error handling as product requirements.
+- Distinguish planned, implemented, and verified work honestly.
 
-# Phase 0 â€” Product and technical specification
+## 2. Phase overview
 
-Status:
-COMPLETE after these documents are reviewed.
+| Phase | Focus | Outcome |
+|---|---|---|
+| 0 | Product and technical decisions | Coherent specification and known open decisions |
+| 1 | Android foundation | Stable package, dependency wiring, build and test setup |
+| 2 | Core local data | Profile, character, attributes, goals, milestones, tasks |
+| 3 | Event and progression engine | Validated events, XP ledger, levels and attribute history |
+| 4 | First vertical slice and Today | Goal-to-task-to-event-to-progression journey |
+| 5 | Daily planning | Plans, schedules, rescheduling, plan-versus-actual |
+| 6 | Foundational tracking | Manual Body, Nutrition, Sleep and shared patterns |
+| 7 | Remaining tracking | Academic, Coding/Skills, Music, Finance, Time, Discipline |
+| 8 | Analytics | Historical summaries, trends, records, careful correlations |
+| 9 | Challenges | Missions, tests, streaks, experiments, later boss challenges |
+| 10 | Recommendations and AI | Evidence-aware recommendations and reviews |
+| 11 | Integrations | Health, usage, calendar, GitHub, optional finance/wearables |
+| 12 | Reliability and release | Migrations, export/delete, accessibility, performance, beta |
+| 13 | Advanced extensions | AI memory, local AI, prediction, visual evolution, optional cloud |
 
-Deliverables:
-- MVP definition
-- database architecture
-- system architecture
-- implementation map
-- roadmap
+Phases are dependency guidance, not a claim that each phase has equal size or must be completed in one uninterrupted block.
 
-Checkpoint:
-No unresolved core data-model decisions.
-
----
-
-# Phase 1 â€” Android foundation
-
-Tasks:
-1. Android project
-2. Application class
-3. AppContainer
-4. dependency configuration
-5. Room
-6. KSP
-7. Coroutines
-8. Lifecycle/ViewModel
-9. repository interfaces
-10. build verification
-
-Depends on:
-Phase 0
-
-Test:
-Clean debug build.
-
-Definition of Done:
-App compiles with foundation dependencies and no architecture-breaking warnings/errors.
-
----
-
-# Phase 2 â€” Room database
+## Phase 0 — Product and technical decisions
 
 Tasks:
-1. converters/enums
-2. User
-3. Character
-4. Attribute
-5. AttributeHistory
-6. Goal
-7. GoalMilestone
-8. Task
-9. Event
-10. XPTransaction
-11. Challenge
-12. DailyPlan
-13. DailyPlanItem
-14. tracking entities
-15. AI entities
-16. DAOs
-17. AppDatabase
-18. database tests
+- review all five documents together
+- choose one application namespace/package root
+- define the first data model and progression invariants
+- choose initial manual tracking workflows
+- establish repository conventions and definition of done
+- identify sensitive data and future permission boundaries
 
-Depends on:
-Phase 1
+Acceptance:
+- the core user journey is clear
+- unresolved decisions are documented
+- the five documents agree on scope and terminology
+
+## Phase 1 — Android foundation
+
+Tasks:
+1. Verify the Gradle project and build configuration.
+2. Choose one package namespace and reconcile conflicting package paths.
+3. Confirm compatibility of Kotlin, Android Gradle Plugin, Compose, Room, KSP, coroutines, and lifecycle dependencies.
+4. Establish Application/dependency wiring appropriate to project size.
+5. Set up navigation and a minimal app shell.
+6. Configure unit and instrumented tests.
+7. Add lint/static checks where practical.
+8. Verify a clean debug build.
+
+Acceptance:
+- clean checkout builds
+- app launches to a real shell rather than only a starter greeting
+- package and namespace references are consistent
+- tests can run
+- no external API key is required to launch
+
+Do not rewrite the whole project to match a folder diagram. Inspect existing code and make the smallest reliable foundation changes.
+
+## Phase 2 — Core local data
+
+Implement incrementally:
+1. Room database and converters
+2. User and UserPreference
+3. Character and Attribute
+4. Goal and GoalMilestone
+5. Task
+6. DAO queries and repository implementations
+7. migrations and database tests
+
+Acceptance:
+- create/read/update/delete behavior works
+- relationships and uniqueness constraints are enforced
+- goal hierarchies cannot cycle
+- invalid schedule ranges are rejected
+- data survives app restarts
+- migrations preserve representative existing records
+
+Do not create every future tracking, AI, and integration table at this stage. Add those with their features.
+
+## Phase 3 — Event and progression engine
+
+Tasks:
+1. Define stable event types, categories, sources, and validation outcomes.
+2. Implement event creation and domain validation.
+3. Add duplicate detection and idempotency keys.
+4. Implement deterministic XP rules and versioning.
+5. Implement level-threshold calculations.
+6. Map eligible events to attributes.
+7. Record immutable XP transactions and progression history.
+8. Update current projections transactionally.
+9. Add reconciliation checks.
 
 Tests:
-- insert/read/update/delete
-- foreign keys
-- unique constraints
-- event history preservation
-- XP immutability
-- migrations
+- valid input produces the expected event
+- invalid units/durations are rejected or flagged by policy
+- repeated processing does not duplicate XP
+- suspicious events remain inspectable but are not rewarded improperly
+- known inputs produce expected XP
+- level boundaries behave correctly
+- ledger totals reconcile with current state
+- failed transactions leave no partial progression
 
-Checkpoint:
-All core entities can be persisted and queried.
+Acceptance: a user can record one supported activity and inspect exactly how it changed progression and why.
 
----
+## Phase 4 — First vertical slice and Today
 
-# Phase 3 â€” Repository layer
+Build a narrow but complete journey:
+- local profile
+- create a goal
+- create a task linked to the goal
+- show tasks on Today
+- complete a task
+- create one event idempotently
+- apply eligible progression
+- show updated character/attribute state
+- display empty, loading, and error states
 
-Tasks:
-- UserRepository
-- CharacterRepository
-- AttributeRepository
-- GoalRepository
-- TaskRepository
-- EventRepository
-- XPRepository
-- ChallengeRepository
+Acceptance: the journey works on a device or emulator without network access. The interface is usable enough to validate the product loop before extensive visual polish.
 
-Tests:
-Repository tests against Room test database.
-
-Checkpoint:
-Domain layer can operate without knowing Room details.
-
----
-
-# Phase 4 â€” Event engine
+## Phase 5 — Daily planning and task lifecycle
 
 Tasks:
-1. Event creation
-2. validation
-3. duplicate detection
-4. suspicious-value detection
-5. persistence
-6. event-to-attribute mapping
-7. processing result
-
-Test examples:
-- valid workout creates event
-- duplicate event is detected
-- invalid duration is rejected/flagged
-- historical event remains stored
-
-Checkpoint:
-A valid event enters the complete processing pipeline.
-
----
-
-# Phase 5 â€” XP and character engine
-
-Tasks:
-1. base XP
-2. multipliers
-3. bounded multiplier rules
-4. diminishing returns
-5. XP transaction
-6. level calculation
-7. attribute update
-8. character update
-9. rank
-
-Tests:
-- known input produces expected XP
-- duplicate event cannot double reward
-- level changes at expected thresholds
-- XP transaction explains result
-
-Checkpoint:
-Event â†’ XP â†’ Attribute â†’ Character works end-to-end.
-
----
-
-# Phase 6 â€” Goals and tasks
-
-Tasks:
-- goal CRUD
-- hierarchy
-- milestones
-- task CRUD
-- priority
-- deadline
-- completion
-- postponement
-- goal progress
-- task event generation
-
-Tests:
-Goal â†’ Task â†’ Completion â†’ Event â†’ XP â†’ Progress
-
-Checkpoint:
-A real goal can be broken into actions and measured.
-
----
-
-# Phase 7 â€” Daily OS
-
-Tasks:
-- Today
-- task ordering
-- daily plan
-- timeline
-- planned vs actual
-- next action
-- rescheduling
+- daily plan and plan items
+- task estimates and actual duration
+- scheduling/rescheduling
+- explainable priority rules
+- deadlines and conflict detection
+- realistic time budgeting and breaks
 - end-of-day review
+- plan-versus-actual history
 
 Tests:
-- overdue task
-- conflicting tasks
-- insufficient available time
-- completed task
-- changed schedule
+- conflicts are identified
+- insufficient available time is handled
+- completed/cancelled tasks are not accidentally rescheduled
+- changed circumstances produce a proposal
+- user edits remain authoritative
+- date/time-zone boundaries work correctly
 
-Checkpoint:
-App can generate and update a useful day.
+Acceptance: PersonalOS can create a useful daily plan and adapt without silently overwriting user choices.
 
----
+## Phase 6 — Foundational tracking
 
-# Phase 8 â€” Tracking modules
-
-Order:
-1. Body
-2. Nutrition
+Implement manual tracking flows for:
+1. Body and workouts
+2. Nutrition daily summaries
 3. Sleep
-4. Academic
-5. Coding
-6. Music
-7. Finance
 
-For every module:
-- data model
-- repository
-- use case
-- event mapping
-- validation
-- basic analytics
+For each domain: define data/units, validate inputs, persist records, connect relevant activity to normalized events, define progression eligibility, add basic history, and test invalid/missing values, date boundaries, and duplicate operations.
 
-Checkpoint:
-Every module produces valid normalized data/events.
+Acceptance: each domain works independently and offline, and records remain useful without AI.
 
----
+## Phase 7 — Remaining tracking domains
 
-# Phase 9 â€” Analytics
+Implement:
+1. Academic: assignments, exams, study sessions, progress and optional scores.
+2. Coding and skills: skill identity, practice history, projects, learning goals, optional GitHub import later.
+3. Music: practice sessions, pieces, techniques and progression.
+4. Finance: income, expenses, budgets, subscriptions, savings and financial goals.
+5. Time and Discipline: planning adherence, consistency and clearly defined metrics.
+
+Reuse shared patterns without flattening domain data. Apply extra care to financial information.
+
+Acceptance:
+- records can be created, corrected, queried and summarized
+- units/calculations are consistent
+- the same achievement is not double-counted
+- missing data is represented honestly
+- history survives edits and restarts
+
+## Phase 8 — Analytics and “You vs Old You”
 
 Tasks:
-- daily aggregates
-- weekly aggregates
-- monthly aggregates
-- attribute history
-- trends
-- consistency
-- personal records
-- You vs Old You
-- correlation engine
-- bottleneck detection
+- daily, weekly, monthly and longer-period summaries
+- goal and attribute progression charts
+- consistency and personal records
+- plan-versus-actual analysis
+- comparisons for yesterday, 7 days, 30 days, 90 days, year, and custom ranges
+- data coverage indicators
+- optional correlations and bottleneck analysis
 
 Tests:
-- known dataset produces expected aggregate
-- empty periods handled
-- custom ranges work
-- correlations show sample size/confidence
-- no causal claims from correlation alone
+- known datasets produce expected summaries
+- empty periods and missing observations are handled
+- period length is normalized where appropriate
+- sample size and limitations accompany correlations
+- sparse data does not produce strong conclusions
+- correlation is not presented as causation
 
-Checkpoint:
-System can answer "Am I becoming better?"
+Acceptance: the app answers “Am I making progress?” with traceable measures and honest uncertainty.
 
----
-
-# Phase 10 â€” AI Coach
+## Phase 9 — Challenges and advanced progression
 
 Tasks:
-1. Context builder
-2. recommendation model
-3. confidence classification
-4. prioritization
-5. daily recommendation
-6. weekly review
-7. weakness detection
-8. overload detection
-9. user confirmation
-10. recommendation outcome tracking
+- daily and weekly missions
+- domain-specific skill tests
+- streaks and consistency challenges
+- prerequisites and rewards
+- failure and recovery handling
+- adaptive difficulty after a stable baseline
+- experiments with explicit hypotheses and outcome measures
+- boss-style challenges as a later extension
+
+Acceptance:
+- state transitions are deterministic
+- rewards cannot be claimed repeatedly
+- failure does not erase history
+- difficulty changes are explainable
+- rest is not automatically treated as failure
+
+## Phase 10 — Recommendation engine and AI coach
+
+Start with deterministic recommendations, then add AI behind a defined interface.
+
+Tasks:
+1. Build a relevant-context selector.
+2. Implement deterministic rules for deadlines, overload, and next actions.
+3. Define recommendation data and statuses.
+4. Add AI explanations and weekly summaries where useful.
+5. Label confidence and distinguish fact, likely pattern, and hypothesis.
+6. Record acceptance, modification, rejection, and outcomes.
+7. Require confirmation for consequential changes.
+8. Add provider failure, timeout, and offline fallback behavior.
 
 Tests:
-- AI gets relevant context
-- recommendation explains evidence
-- important targets require confirmation
-- overloaded user is not given an unrealistic plan
-- failed recommendation can be learned from
+- context excludes unrelated sensitive data
+- reasons refer to available evidence
+- insufficient data produces cautious output
+- overloaded users are not given impossible plans
+- important targets are not silently changed
+- provider failure does not break core tracking
 
-Checkpoint:
-AI recommendations are traceable to stored data.
+Acceptance: recommendations can be inspected, dismissed, and evaluated later; AI is useful but never required for core behavior.
 
----
+## Phase 11 — Integrations and automation
 
-# Phase 11 â€” Automation
+Potential order:
+1. Health Connect
+2. Calendar
+3. UsageStatsManager
+4. GitHub
+5. Finance providers and wearables when justified
 
-Tasks:
-- Health Connect
-- Usage Stats
-- Calendar
-- GitHub
-- background sync
-- normalization
-- permission center
+For every connector:
+- explain the data and purpose
+- request permission only when needed
+- handle denial and revocation
+- normalize units and timestamps
+- retain source identifiers
+- prevent duplicate imports
+- support partial and repeated sync
+- expose last-sync and disconnect behavior
+- define deletion of imported data
 
-For every integration:
-Permission â†’ Import â†’ Normalize â†’ Store â†’ Event â†’ Analyze
+WorkManager can run deferrable imports and summaries. Do not promise exact execution times or rely on background work for immediate actions.
 
-Tests:
-- permission denied
-- permission revoked
-- duplicate imports
-- partial import
-- offline mode
-- repeated sync
+Acceptance: repeated imports are safe, manual records remain intact, and core features work without the integration.
 
-Checkpoint:
-Automatic data does not corrupt manual data or duplicate events.
-
----
-
-# Phase 12 â€” Challenges and advanced progression
+## Phase 12 — Reliability, privacy, and release hardening
 
 Tasks:
-- daily missions
-- weekly challenges
-- tests
-- streaks
-- experiments
-- boss prerequisites
-- failure analysis
-- recovery progression
-- adaptive difficulty
+- migration coverage
+- export/import validation
+- deletion behavior
+- secure handling of sensitive information
+- accessibility and adaptive layouts
+- loading/error/empty states
+- crash/performance checks
+- battery-impact review
+- offline testing
+- notification controls
+- privacy review and clear data explanations
+- beta feedback and fixes
 
-Checkpoint:
-Gamification rewards meaningful improvement rather than raw activity.
+Acceptance: users can understand stored data, recover/export it, delete it, and use core functions reliably.
 
----
+## Phase 13 — Advanced extensions
 
-# Phase 13 â€” Widgets and notifications
+Potential work:
+- structured AI memory
+- encrypted backup and multi-device sync
+- local/on-device AI
+- predictive models
+- character visual evolution
+- richer experiments and adaptive challenges
+- advanced integrations
+- optional social/public features after separate privacy and abuse review
 
-Tasks:
-- character
-- XP
-- goals
-- today
-- AI recommendation
-- challenges
-- spending
-- sleep
-- screen time
+Each extension needs a concrete user benefit, privacy assessment, fallback behavior, and measurable acceptance criteria. Do not add cloud infrastructure merely because a remote layer appears in an architecture diagram.
 
-Notifications:
-- critical
-- important
-- useful
-- silent
+## 3. Cross-phase quality gates
 
-Rule:
-Interrupt only when expected benefit > annoyance.
+Every phase addresses persistence and integrity, offline behavior, error recovery, tests, migration implications, accessibility, privacy/permissions, and updated documentation/status.
 
-Checkpoint:
-Widgets and notifications accurately reflect current state.
+## 4. Definition of done
 
----
-
-# Phase 14 â€” Security and reliability
-
-Tasks:
-- permission handling
-- data export
-- data import
-- deletion
-- encryption where needed
-- offline behavior
-- crash recovery
-- database migration
-- backup strategy
-- privacy review
-
-Checkpoint:
-User can control and recover their data.
-
----
-
-# Phase 15 â€” Testing
-
-Unit:
-- XP
-- levels
-- priority
-- event validation
-- analytics
-- recommendation scoring
-
-Integration:
-- Room
-- repositories
-- event pipeline
-- WorkManager
-- integrations
-
-UI:
-- core screens
-- navigation
-- state restoration
-- accessibility
-
-Scenario:
-- new user
-- normal day
-- missed tasks
-- overloaded day
-- goal completion
-- failed challenge
-- data import
-- permission removal
-
-Checkpoint:
-Core system passes automated and manual testing.
-
----
-
-# Phase 16 â€” UI/UX polish
-
-Only after functionality is stable.
-
-Tasks:
-- visual system
-- navigation polish
-- charts
-- character visuals
-- animations
-- micro-interactions
-- accessibility
-- responsive layouts
-- dark/light mode
-
-Checkpoint:
-Visual polish does not change core business logic.
-
----
-
-# Phase 17 â€” Personal beta
-
-Use personally first.
-
-Measure:
-- logging friction
-- recommendation usefulness
-- false recommendations
-- XP inflation
-- missing data
-- crashes
-- battery impact
-- actual improvement
-
-Then:
-Fix â†’ retest â†’ expand beta.
-
----
-
-# Definition of Done
-
-A phase is not complete because the code compiles.
-
-It is complete when:
-1. implementation exists
-2. expected behavior works
+A phase is complete only when:
+1. behavior is implemented
+2. acceptance criteria pass
 3. edge cases are handled
-4. tests exist
-5. data is persistent where required
-6. errors are handled
-7. dependencies are documented
-8. the next phase can safely build on it
+4. data persists correctly
+5. errors are visible and recoverable
+6. automated tests cover important rules
+7. privacy/permission behavior is correct
+8. promised offline/network behavior works
+9. the next phase can safely build on it
+10. documentation and repository status match reality
 
----
+## 5. Recommended immediate target
 
-# Current coding target
+After reviewing these documents, inspect the existing Android project before structural changes.
 
-After approval of these five documents:
+First implementation slice:
+1. standardize namespace/package structure
+2. verify clean build and test setup
+3. create minimal Room foundation
+4. implement User, Character, Attribute, Goal, and Task
+5. build a usable Today-to-task-completion journey
+6. add Event and XP processing with tests before broadening tracking
 
-Phase 1:
-Room + KSP + Coroutines + ViewModel foundation
-
-Then Phase 2:
-Core database schema and DAOs
-
-Do not build feature UI before the core engine is functional.
+This is the first coding slice, not a limit on PersonalOS's eventual scope.
