@@ -1,422 +1,260 @@
-﻿# PersonalOS â€” System Architecture
-Version: 1.0
+# PersonalOS — System Architecture
 
-## 1. High-level architecture
+**Version:** 2.0  
+**Status:** Target architecture  
+**Platform:** Android, Kotlin, Jetpack Compose, Room
 
-Compose UI
-â†’ ViewModel
-â†’ Use Case
-â†’ Repository
-â†’ Local/Remote Data Source
+This document describes the intended architecture. A listed component is planned until it exists in the repository and has been tested.
 
-Cross-cutting engines:
-- Event Engine
-- XP Engine
-- Attribute Engine
-- Goal Engine
-- Planning Engine
-- Analytics Engine
-- Recommendation Engine
-- AI Coach
-- Sync/Integration Layer
+## 1. Architecture goals
 
-## 2. Android package architecture
+PersonalOS must support multiple tracking domains without turning every screen into an isolated system. The architecture should keep core behavior offline, make event and XP processing deterministic, preserve history, isolate optional AI/integrations, handle failures without corrupting data, and remain testable.
 
-app
-â”œâ”€â”€ core
-â”‚   â”œâ”€â”€ AppContainer
-â”‚   â”œâ”€â”€ di
-â”‚   â”œâ”€â”€ common
-â”‚   â””â”€â”€ result
-â”œâ”€â”€ data
-â”‚   â”œâ”€â”€ local
-â”‚   â”‚   â”œâ”€â”€ entity
-â”‚   â”‚   â”œâ”€â”€ dao
-â”‚   â”‚   â”œâ”€â”€ database
-â”‚   â”‚   â””â”€â”€ converters
-â”‚   â”œâ”€â”€ repository
-â”‚   â””â”€â”€ remote
-â”œâ”€â”€ domain
-â”‚   â”œâ”€â”€ model
-â”‚   â”œâ”€â”€ repository
-â”‚   â””â”€â”€ usecase
-â”œâ”€â”€ features
-â”‚   â”œâ”€â”€ home
-â”‚   â”œâ”€â”€ character
-â”‚   â”œâ”€â”€ goals
-â”‚   â”œâ”€â”€ today
-â”‚   â”œâ”€â”€ tracking
-â”‚   â”œâ”€â”€ progress
-â”‚   â””â”€â”€ challenges
-â”œâ”€â”€ ai
-â”œâ”€â”€ integrations
-â””â”€â”€ workers
+Avoid abstractions with no current use. Add layers when they protect a real boundary, not merely to create more folders.
 
-## 3. Presentation layer
+## 2. High-level flow
 
-Responsibilities:
-- Compose UI
-- screen state
-- navigation
-- user interaction
+**Compose UI → ViewModel → Use Case → Repository interface → Repository implementation → Room or optional external source**
 
-Rule:
-UI does not directly query Room.
+Domain operations may call focused services such as EventProcessor, ProgressionEngine, GoalProgressCalculator, or PlanningEngine. They must not bypass repositories to query Room directly.
 
-## 4. ViewModel layer
+Layer responsibilities:
+- **Presentation:** rendering, navigation, interaction, UI state.
+- **Domain:** business rules, validation, calculations, orchestration.
+- **Data:** Room entities, DAOs, mapping, repositories, import persistence.
+- **Core/platform:** shared result/error types, clock/dispatcher abstractions where useful, dependency wiring, Android boundaries.
+- **AI:** context selection, provider abstraction, safety constraints, explanation.
+- **Integrations:** permission-aware connectors and external-data normalization.
+- **Background work:** deferrable imports, reminders, and summaries when implemented.
 
-Responsibilities:
-- expose StateFlow/UI state
-- receive UI actions
-- invoke use cases
-- handle loading/error/success states
+## 3. Suggested package organization
 
-Rule:
-ViewModels do not contain large business algorithms.
+Use one consistent root package that matches the Gradle namespace. Do not mix com.example.personalos and com.jofil.personalOS in the same application.
 
-## 5. Domain layer
+- core: common types, dependency wiring, navigation
+- data/local: entities, DAOs, database, mappers
+- data/repository: repository implementations
+- domain/model: domain types
+- domain/repository: interfaces
+- domain/usecase: application operations
+- domain/engine: event, progression, planning, analytics
+- feature: home, today, goals, character, tracking, progress, settings
+- ai: provider abstraction and context builder
+- integrations: Health, calendar, GitHub, usage data
+- workers: WorkManager jobs when needed
 
-Use cases contain business actions.
+This is a logical organization, not a requirement to create every package immediately. Keep the initial project simple until real complexity justifies additional modules.
 
-Core use cases:
-- CreateGoal
-- CompleteTask
-- RecordEvent
-- CalculateXp
-- ApplyXp
-- UpdateAttribute
-- UpdateCharacter
-- GenerateDailyPlan
-- GetNextBestAction
-- AnalyzeProgress
-- CompareWithOldSelf
+## 4. Presentation and ViewModels
+
+Compose UI responsibilities:
+- display screens and reusable components
+- collect input and render state
+- show loading, empty, success, and error states
+- support accessibility and adaptive layouts
+- delegate actions to ViewModels
+
+Rules:
+- UI does not query Room or calculate XP.
+- Composables should be stateless where practical.
+- Empty data is valid and distinct from an error.
+- Consequential operations must not repeat merely because a screen recomposes.
+- Screen state should handle configuration changes appropriately.
+
+ViewModels expose StateFlow or equivalent lifecycle-aware state, receive UI actions, invoke use cases, and translate results into presentation state. They must not contain large algorithms, direct SQL, or hidden side effects triggered by rendering.
+
+## 5. Domain and use cases
+
+The domain layer contains product rules and does not depend on Compose or Room details.
+
+Initial use cases may include:
+- CreateOrUpdateProfile
+- CreateGoal, UpdateGoal, ArchiveGoal
+- CreateTask, RescheduleTask, CompleteTask
+- RecordActivity, ValidateEvent, ProcessEvent
+- CalculateProgressionReward, ApplyProgression
+- GetTodayOverview, GenerateDailyPlan, GetNextBestAction
+- CalculateGoalProgress, GetProgressSummary, ComparePeriods
 - GenerateWeeklyReview
-- CreateRecommendation
-- ValidateEvent
+- ExportUserData, DeleteUserData
+
+Do not create a class for every trivial line of code. Use cases should represent meaningful business operations or stable application boundaries.
 
 ## 6. Data layer
 
-Room entities represent persistence.
+Room is the local source of truth for core user-created records. The data layer defines entities and DAOs, maps database models to domain models, implements repository interfaces, enforces storage constraints, runs migrations, and exposes query results.
 
-Repositories expose domain-friendly operations.
+Repositories expose domain-friendly operations rather than DAO details. Network and platform integrations remain separate data sources and are not required for local core operations.
 
-Example:
-UI â†’ CompleteTaskUseCase â†’ TaskRepository + EventEngine â†’ Room
+## 7. Event processing
 
-## 7. Event Engine
+EventProcessor coordinates normalized activity recording; it does not replace domain-specific records.
 
-Purpose:
-convert meaningful activity into normalized events.
+Expected flow:
+1. Receive user action or imported record.
+2. Validate required fields and units.
+3. Normalize the input and retain its source.
+4. Check stable source IDs and duplicate rules.
+5. Persist the domain record and normalized event.
+6. Determine progression eligibility.
+7. Apply deterministic progression rules.
+8. Update history and derived state.
+9. Return a result for UI and analytics.
 
-Input:
-activity data
+Invalid input returns a useful error. Suspicious data is flagged with a reason. Duplicate processing is idempotent. Records are not discarded solely because they are ineligible for XP. Related writes use a transaction where possible.
 
-Steps:
-1. create event
-2. validate event
-3. detect duplicate
-4. detect suspicious values
-5. persist raw event
-6. calculate XP eligibility
-7. send event to analytics
-8. update AI context
+## 8. Progression engine: XP, levels, attributes
 
-## 8. XP Engine
+The progression engine is deterministic and independently unit-testable.
 
-Base model:
+Conceptual model:
 
-Final XP =
-Base XP
-Ã— Difficulty
-Ã— Importance
-Ã— Quality
-Ã— Improvement
-Ã— Consistency
-Ã— Result
-Ã— AI Adjustment
+**final XP = bounded base XP × bounded difficulty × bounded relevance × bounded quality × bounded improvement × bounded consistency**
 
-The multipliers are bounded to avoid extreme inflation.
+Not every event uses every factor. Each factor needs a defined range and meaning. Do not use an unconstrained AI-adjustment multiplier.
 
-Anti-farming:
-- diminishing returns
-- duplicate detection
-- suspicious-volume detection
-- minimum meaningful result
-- daily/category caps where justified
+Responsibilities:
+- determine eligible XP categories
+- calculate rewards using versioned rules
+- prevent duplicate rewards
+- apply diminishing returns where justified
+- calculate level thresholds
+- update attribute and character projections
+- write auditable XP transactions and progression history
+- reconcile ledger totals with current projections
 
-XP must be attributable to an Event or explicit system action.
+Example mappings:
+- WORKOUT → Body
+- STUDY → Academic and/or Knowledge according to explicit rules
+- CODING → Skills
+- MUSIC_PRACTICE → Music
+- relevant finance behavior → Finance
+- time-planning behavior → Time and/or Discipline under explicit rules
 
-## 9. Attribute Engine
+An event affects multiple attributes only when configured. Do not award XP to several categories merely because an event could be associated with them.
 
-Event category determines relevant attribute.
+Levels, XP, and scores are distinct concepts. Progressive thresholds and later prestige/mastery levels are possible, but the curve must be simulated and tested.
 
-Examples:
-WORKOUT â†’ BODY
-STUDY â†’ ACADEMIC/KNOWLEDGE
-CODING â†’ SKILLS
-PIANO â†’ MUSIC
-EXPENSE/SAVING â†’ FINANCE
-FOCUS/TIME MANAGEMENT â†’ TIME/DISCIPLINE
+## 9. Goals and tasks
 
-Some events may affect multiple attributes, but this must be explicitly configured.
+Goal processing handles hierarchy, milestones, status transitions, and progress. Progress may come from manual input, milestones, linked tasks, or measured events. The configured progress mode determines the authoritative source. Prevent double counting when multiple records describe the same achievement.
 
-## 10. Goal Engine
+Task processing handles state transitions, schedules, estimates, actual duration, and completion history. Completing a task may create a normalized event, but only idempotently.
 
-Goal hierarchy:
-Long-term â†’ Yearly â†’ Monthly â†’ Weekly â†’ Daily
+Priority should be explainable. Importance, urgency, impact, deadline, effort, readiness, and available time may inform recommendations, but no opaque formula should silently override user-set priorities.
 
-Goal progress should be derived from:
-- completed tasks
-- milestones
-- measurable results
-- events where applicable
-
-Priority:
-Importance Ã— Urgency Ã— Impact Ã— Deadline factor Ã— Difficulty/readiness factor
-
-## 11. Daily Planning Engine
+## 10. Daily planning engine
 
 Inputs:
-- current time
-- available time
-- active goals
-- deadlines
-- tasks
-- priority
-- estimated duration
-- workload
-- recovery
-- historical behavior
-- user preferences
-
-Output:
-ordered DailyPlanItems.
-
-When the day changes:
-1. detect conflict
-2. recalculate
-3. generate proposal
-4. user confirms/modifies
-5. update plan
-
-## 12. "What should I do right now?"
-
-Candidate actions:
-- due tasks
-- high-impact goals
-- scheduled tasks
-- recovery actions
-- important habits/activities
-
-Decision:
-Impact Ã— Urgency Ã— Confidence Ã— Relevance Ã— Readiness
-
-High:
-interrupt/strong recommendation
-
-Medium:
-home recommendation
-
-Low:
-silent/background
-
-Principle:
-Interrupt only when expected benefit > annoyance.
-
-## 13. Analytics Engine
-
-Inputs:
-- events
-- goals
-- tasks
-- tracking records
-- XP history
-- attribute history
+- local date and time zone
+- available time and fixed commitments
+- active goals and deadlines
+- task priority and duration estimates
+- workload and user preferences
+- recent plan-versus-actual history
+- recovery/rest constraints when provided
 
 Outputs:
-- trends
-- averages
-- consistency
-- records
-- progress
-- comparisons
-- correlations
-- bottlenecks
+- ordered plan items and optional time blocks
+- rationale and relevant constraints
+- conflicts and tasks that do not fit
 
-Analytics must preserve distinction between:
-- measurement
-- association
-- hypothesis
-- causal claim
+Rules:
+- preserve fixed commitments and explicit user choices
+- avoid accidental overlapping work blocks
+- include breaks and realistic transition time where appropriate
+- do not fill every minute by default
+- propose changes instead of silently rewriting important plans
+- treat user edits as authoritative
 
-## 14. You vs Old You
+## 11. “What should I do right now?”
 
-Comparison windows:
-- yesterday
-- 7 days
-- 30 days
-- 90 days
-- 1 year
-- custom
+Candidate actions include scheduled/due tasks, high-impact goal actions, tasks that unblock other work, a small next step for an overdue goal, planned recovery, or a break when appropriate.
 
-Metrics:
-- study
-- coding
-- sleep
-- exercise
-- nutrition consistency
-- savings
-- screen time when available
-- attribute scores
-- goal completion
-- challenge performance
+Consider urgency, relevance, available time, readiness, and confidence. Provide a short reason and allow dismissal, editing, or acceptance.
 
-Output:
-- biggest improvement
-- biggest decline
-- current weakness
-- opportunity
-- next highest-impact action
+Interrupt only when the expected benefit justifies the interruption. A home-screen recommendation is preferable to an unnecessary notification.
 
-## 15. AI Context Builder
+## 12. Analytics and “You vs Old You”
 
-AI should not receive an uncontrolled database dump.
+Inputs include events, domain records, goals, tasks, XP ledger, attribute history, and data coverage.
 
-Context builder selects:
-- profile/preferences
-- active goals
-- deadlines
-- recent events
-- relevant historical trends
-- current workload
-- recovery state
-- previous recommendations
-- recommendation outcomes
+Outputs may include daily/weekly/monthly summaries, trends, consistency, personal records, goal progress, comparisons across yesterday/7 days/30 days/90 days/year/custom ranges, possible bottlenecks, and correlations.
 
-Then creates structured context.
+Rules:
+- normalize for period length where appropriate
+- show sample size and data coverage
+- avoid comparing unlike periods without explanation
+- distinguish measurements, associations, and hypotheses
+- do not infer causation from correlation
+- avoid strong conclusions from sparse data
 
-## 16. AI Coach
+## 13. AI context builder and coach
 
-Capabilities:
-- diagnose
-- recommend
-- plan
-- review
-- challenge
-- experiment
-- re-plan
+AI is optional and must not control core state. The context builder selects only relevant information: preferences, active goals/deadlines, tasks/workload, recent events, relevant trends, user constraints, and prior recommendation outcomes where useful.
 
-Decision process:
-1. Does it matter?
-2. Will it improve something important?
-3. Is there enough evidence?
-4. Is it realistic?
-5. Is user overloaded?
-6. Has this failed before?
-7. Is there a higher-impact action?
+Do not send an uncontrolled database dump or unrelated sensitive records.
 
-AI confidence:
-KNOWN / LIKELY / HYPOTHESIS
+Planned capabilities include next-action suggestions, daily plans, weekly reviews, bottleneck analysis, possible opportunities, overload detection, and experiments.
 
-Important target workflow:
-AI suggests â†’ explains â†’ user confirms â†’ execute.
+Confidence:
+- **KNOWN:** direct stored fact or deterministic calculation.
+- **LIKELY:** pattern supported by sufficient observations.
+- **HYPOTHESIS:** tentative interpretation needing more evidence.
 
-## 17. AI Memory
+Recommendations must identify their basis and limitations. Users can accept, edit, or reject them. Changes to important goals, targets, schedules, or financial plans require explicit confirmation.
 
-Store:
-- preferences
-- successful strategies
-- failed strategies
-- recurring patterns
-- correlations
-- strengths
-- weaknesses
-- experiments
-- feedback
-- recommendation outcomes
+## 14. AI memory and traceability
 
-Memory must be structured and auditable rather than blindly storing every conversation.
+If AI memory is added, store structured and reviewable information such as explicit preferences, strategies marked useful/unhelpful, recurring patterns with supporting observations, experiments, and feedback.
 
-## 18. Background Work
+Do not blindly retain every conversation. Memory should have a source and timestamp, and users should be able to correct or delete it. An inferred preference is not a confirmed fact.
 
-WorkManager later handles:
-- scheduled synchronization
-- analytics refresh
-- daily review preparation
-- weekly review preparation
-- imports
-- notifications
+## 15. Integrations and background work
 
-Workers must be idempotent where possible.
+Potential integrations: Health Connect, Android UsageStatsManager, Calendar Provider, GitHub, finance providers, and wearables.
 
-## 19. Integrations
+Common flow: permission and explanation → connector → source record → normalization → duplicate check → local persistence → event processing.
 
-Architecture:
-Permission
-â†’ connector
-â†’ raw imported data
-â†’ normalization
-â†’ local storage
-â†’ event creation
-â†’ analytics
+Integrations are optional and must handle denied/revoked permissions. Imported data must be distinguishable from manual data.
 
-Potential:
-- Health Connect
-- UsageStatsManager
-- Calendar Provider
-- GitHub API
-- finance providers
-- wearables
+WorkManager may handle deferrable imports, synchronization, summaries, and reminders. Workers must be idempotent, respect platform constraints, and not assume exact execution times.
 
-## 20. Privacy
+## 16. Error handling and reliability
 
-Local-first.
+Use controlled errors appropriate to the layer: ValidationError, NotFoundError, ConflictError, StorageError, PermissionError, IntegrationError, AIProviderError, and NetworkError.
 
-Permission Center should eventually show:
-- source
-- collected data
-- reason
-- last sync
-- disconnect
-- delete imported data
+- Core tracking continues offline.
+- External failures do not erase local records.
+- Errors are actionable without exposing secrets or sensitive content.
+- Transactions protect related state changes.
+- Retries are safe.
+- Empty results are distinct from failures.
 
-No personal-data sale.
+## 17. Privacy and security
 
-## 21. Error strategy
+Request permissions only when needed. Explain integration use. Store secrets using secure platform mechanisms or a properly secured backend. Never commit keys or tokens. Minimize AI context and disclose external processing. Support export and deletion. Avoid logging health/financial content. Make integration status, last sync, and disconnection understandable.
 
-Each layer should expose controlled errors.
+## 18. Testing strategy
 
-Examples:
-- DatabaseError
-- ValidationError
-- PermissionError
-- IntegrationError
-- AIError
-- NetworkError
+- **Unit:** validation, XP, levels, goal progress, priority, analytics.
+- **Database/repository:** constraints, relations, transactions, migrations, queries.
+- **Integration:** event-to-progression pipeline, import idempotency, failure recovery.
+- **UI:** primary journeys, empty/error states, accessibility, state restoration.
+- **Scenarios:** new user, missed tasks, overloaded day, goal completion, duplicate import, revoked permission, offline use, export, deletion.
 
-Core tracking must continue offline.
+Core rules must be testable without launching a screen or calling a remote AI provider.
 
-## 22. Core data flow
+## 19. End-to-end flows
 
-Manual:
-User action
-â†’ ViewModel
-â†’ Use Case
-â†’ Event Engine
-â†’ Repository
-â†’ Room
-â†’ XP/Attribute
-â†’ Analytics
-â†’ AI Context
+**Manual activity:** UI → ViewModel → RecordActivity → EventProcessor → Repository → Room → ProgressionEngine → ledger/projections/history → updated UI.
 
-Automatic:
-Phone/API
-â†’ Integration
-â†’ Normalizer
-â†’ Event/Record
-â†’ same pipeline
+**Task completion:** UI → CompleteTask → validate transition → persist completion/event once → eligible progression → goal progress → updated UI.
 
-## 23. Architecture rule
+**Automatic import:** connector → normalized source record → idempotency check → local persistence → event processing → analytics.
 
-The UI is replaceable.
-The data, domain and event-processing system is the foundation.
+**Recommendation:** local facts/history → context builder → deterministic rules and/or AI → evidence-aware recommendation → user decision → outcome tracking.
+
+## 20. Architecture decision
+
+Keep the core product deterministic, local-first, and testable. Treat AI, integrations, cloud backup, predictive models, and advanced gamification as replaceable extensions. The UI may evolve; stored history and business rules must remain coherent.
