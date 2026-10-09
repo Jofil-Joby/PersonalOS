@@ -1,681 +1,283 @@
-﻿# PersonalOS â€” Database Architecture
-Version: 1.0
+# PersonalOS — Database Architecture
 
-## 1. Storage strategy
+**Version:** 2.0  
+**Status:** Target data-model specification  
+**Storage:** Android Room over SQLite
 
-Primary storage:
-- Room
-- SQLite
-- local-first
+This document describes the intended data model, not entities already implemented in the app. Build it incrementally; do not create every table before the corresponding feature needs it.
+
+## 1. Storage principles
+
+1. Local-first storage for core records.
+2. Stable UUID string primary keys unless another strategy has a measured benefit.
+3. Preserve meaningful events and progression history.
+4. Keep derived values reproducible from source data where practical.
+5. Define foreign keys, uniqueness, indexes, and deletion behavior deliberately.
+6. Apply related event/progression updates transactionally.
+7. Provide a Room migration and test for each schema change.
+8. Minimize sensitive data and never store API secrets in the database.
+9. Use typed columns for frequently queried values; reserve JSON for genuinely flexible metadata.
+10. Do not imply cloud backup, multi-device sync, or multi-user support merely because the schema could later accommodate them.
+
+## 2. Conventions
+
+- **IDs:** UUID strings.
+- **Timestamps:** epoch milliseconds in UTC.
+- **Calendar dates:** explicit local date key such as ISO-8601 text; store a time-zone identifier when day boundaries matter.
+- **Durations:** integer seconds or minutes, consistently defined and named.
+- **XP:** integer Long values in the persisted ledger.
+- **Money:** integer minor units plus ISO currency code; avoid floating-point balances.
+- **Scores:** documented scale, meaning, and direction; never convert missing values silently to zero.
+- **Enums:** stable string/code values, never ordinal positions.
+- **Nullability:** null means unknown, not applicable, or not provided, not zero.
+- **Time fields:** distinguish occurrence time from record creation/update time.
+
+A timestamp is an instant; a local date is a calendar concept. Do not use midnight timestamps as an ambiguous substitute for a date.
+
+## 3. Profile and progression
+
+### User
+Fields: id (PK), name, birthDate (optional), createdAt, updatedAt.
+
+One User has one Character and many Goals, Tasks, Events, XPTransactions, Challenges, tracking records, plans, preferences, and recommendations. The first release may support one local profile; multi-profile support is not assumed.
+
+### Character
+Fields: id (PK), userId (unique FK), level, totalXp, overallScore (optional), rank (optional), progressionRuleVersion, createdAt, updatedAt.
+
+Character state is a current projection. The XP ledger explains how progression was earned.
+
+### Attribute
+Fields: id (PK), characterId (FK), type, level, xp, score (optional), progressionRuleVersion, createdAt, updatedAt.
+
+Initial types: BODY, KNOWLEDGE, SKILLS, ACADEMIC, MUSIC, FINANCE, TIME, DISCIPLINE.
+
+Constraint: unique(characterId, type). Overall progression is derived rather than stored as a duplicate OVERALL attribute.
+
+### AttributeHistory
+Fields: id (PK), attributeId (FK), timestamp, level, xp, score (optional), reason, sourceEventId (optional), ruleVersion.
+
+Write snapshots after meaningful progression changes or deliberate aggregation intervals, not on every screen render.
+
+## 4. Goals, milestones, and tasks
+
+### Goal
+Fields: id (PK), userId (FK), parentGoalId (self-FK, optional), name, description (optional), level, category, linkedAttributeType (optional), priority, difficulty, importance (optional), urgency (optional), impact (optional), deadline (optional), progress, progressMode, status, xpReward (optional), createdAt, updatedAt, completedAt (optional), archivedAt (optional).
+
+Levels: LONG_TERM, YEARLY, MONTHLY, WEEKLY, DAILY.  
+Progress modes: MANUAL, MILESTONE, TASKS, MEASURED.  
+Statuses: ACTIVE, COMPLETED, PAUSED, CANCELLED, ARCHIVED.
 
 Rules:
-- Stable IDs.
-- Store historical events rather than overwriting history.
-- Derived scores can be recalculated.
-- XP transactions are immutable.
-- Timestamps are stored consistently as epoch milliseconds.
-- Sensitive data remains local unless the user explicitly enables an integration/cloud feature.
-
-## 2. Shared conventions
-
-All primary IDs:
-- String UUID
-
-Time:
-- Long epoch milliseconds
-
-Percentages/scores:
-- Double
-
-Counters:
-- Int/Long as appropriate
-
-Nullable fields:
-- only when the value genuinely may not exist
-
-## 3. User
-
-Purpose: owner/profile.
-
-Fields:
-- id: String PK
-- name: String
-- birthDate: Long?
-- createdAt: Long
-- updatedAt: Long
-
-Relationships:
-- User 1:1 Character
-- User 1:N Goal
-- User 1:N Task
-- User 1:N Event
-- User 1:N XPTransaction
-- User 1:N Challenge
-- User 1:N tracking records
-
-Example:
-id=user_uuid
-name=Jofil
-birthDate=null
-
-## 4. Character
-
-Purpose: overall progression state.
-
-Fields:
-- id: String PK
-- userId: String FK User
-- level: Int
-- totalXp: Long
-- overallScore: Double
-- rank: String
-- createdAt: Long
-- updatedAt: Long
-
-Constraint:
-- one Character per User
-
-## 5. Attribute
-
-Purpose: major progression categories.
-
-Fields:
-- id: String PK
-- characterId: String FK Character
-- type: String/enum
-- level: Int
-- xp: Long
-- score: Double
-- createdAt: Long
-- updatedAt: Long
-
-Types:
-BODY
-KNOWLEDGE
-SKILLS
-ACADEMIC
-MUSIC
-FINANCE
-TIME
-DISCIPLINE
-
-Overall is calculated from the character/attributes rather than stored as a separate attribute row.
-
-## 6. AttributeHistory
-
-Purpose: historical snapshots for trend analysis.
-
-Fields:
-- id: String PK
-- attributeId: String FK Attribute
-- timestamp: Long
-- level: Int
-- xp: Long
-- score: Double
-- reason: String?
-
-Why:
-Current Attribute is state; AttributeHistory preserves the past.
-
-## 7. Goal
-
-Fields:
-- id: String PK
-- userId: String FK User
-- parentGoalId: String? self FK
-- name: String
-- description: String
-- level: String/enum
-- category: String
-- linkedAttributeType: String?
-- priority: Int
-- difficulty: Int
-- importance: Double
-- urgency: Double
-- impact: Double
-- deadline: Long?
-- progress: Double
-- status: String/enum
-- xpReward: Int
-- createdAt: Long
-- updatedAt: Long
-- completedAt: Long?
-
-Levels:
-LONG_TERM
-YEARLY
-MONTHLY
-WEEKLY
-DAILY
-
-Statuses:
-ACTIVE
-COMPLETED
-PAUSED
-CANCELLED
-ARCHIVED
-
-## 8. GoalMilestone
-
-Fields:
-- id: String PK
-- goalId: String FK Goal
-- name: String
-- targetValue: Double?
-- currentValue: Double?
-- orderIndex: Int
-- completed: Boolean
-- xpReward: Int
-- completedAt: Long?
-
-Relationship:
-Goal 1:N GoalMilestone
-
-## 9. Task
-
-Fields:
-- id: String PK
-- userId: String FK User
-- goalId: String? FK Goal
-- name: String
-- description: String?
-- category: String
-- priority: Int
-- difficulty: Int
-- estimatedMinutes: Int?
-- actualMinutes: Int?
-- scheduledStart: Long?
-- scheduledEnd: Long?
-- deadline: Long?
-- status: String/enum
-- createdAt: Long
-- updatedAt: Long
-- completedAt: Long?
-
-Statuses:
-PENDING
-IN_PROGRESS
-COMPLETED
-POSTPONED
-CANCELLED
-
-## 10. Event
-
-Central normalized activity record.
-
-Fields:
-- id: String PK
-- userId: String FK User
-- type: String/enum
-- category: String/enum
-- source: String/enum
-- timestamp: Long
-- durationMinutes: Int?
-- difficulty: Double?
-- quality: Double?
-- result: Double?
-- goalId: String? FK Goal
-- taskId: String? FK Task
-- relatedEntityId: String?
-- metadataJson: String?
-- validationStatus: String/enum
-- createdAt: Long
-
-Types may include:
-STUDY
-WORKOUT
-EXERCISE_SET
-CODING
-PIANO
-SLEEP
-NUTRITION
-EXPENSE
-INCOME
-TASK_COMPLETION
-GOAL_MILESTONE
-CHALLENGE_PROGRESS
-RECOVERY
-MANUAL_ACTIVITY
-
-Sources:
-MANUAL
-SYSTEM
-HEALTH_CONNECT
-USAGE_STATS
-CALENDAR
-GITHUB
-IMPORT
-AI
-
-Validation:
-VALID
-SUSPICIOUS
-DUPLICATE
-REJECTED
-
-Important:
-Raw event remains stored even if later classified as suspicious/rejected.
-
-## 11. XPTransaction
-
-Immutable explanation of XP changes.
-
-Fields:
-- id: String PK
-- userId: String FK User
-- eventId: String? FK Event
-- attributeId: String? FK Attribute
-- type: String/enum
-- baseXp: Double
-- difficultyMultiplier: Double
-- importanceMultiplier: Double
-- qualityMultiplier: Double
-- improvementMultiplier: Double
-- consistencyMultiplier: Double
-- resultMultiplier: Double
-- aiAdjustment: Double
-- finalXp: Double
-- reason: String
-- timestamp: Long
-
-Types:
-ACTION
-CONSISTENCY
-GROWTH
-CHALLENGE
-RECOVERY
-DISCIPLINE
-LEARNING
-
-## 12. Challenge
-
-Fields:
-- id: String PK
-- userId: String FK User
-- name: String
-- description: String
-- type: String
-- difficulty: Int
-- targetJson: String
-- startDate: Long
-- endDate: Long
-- progress: Double
-- status: String
-- xpReward: Int
-- createdAt: Long
-- completedAt: Long?
-
-Types:
-DAILY
-WEEKLY
-MONTHLY
-SKILL_TEST
-PHYSICAL
-ACADEMIC
-FINANCE
-TIME
-STREAK
-EXPERIMENT
-BOSS
-
-Statuses:
-AVAILABLE
-ACTIVE
-COMPLETED
-FAILED
-EXPIRED
-LOCKED
-
-## 13. BodyRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- timestamp: Long
-- weightKg: Double?
-- steps: Int?
-- walkingDistanceKm: Double?
-- energy: Double?
-- recovery: Double?
-
-## 14. Workout
-
-Fields:
-- id: String PK
-- userId: String FK User
-- timestamp: Long
-- type: String
-- durationMinutes: Int
-- difficulty: Double?
-- performanceScore: Double?
-- notes: String?
-
-## 15. ExerciseSet
-
-Fields:
-- id: String PK
-- workoutId: String FK Workout
-- exerciseName: String
-- setNumber: Int
-- reps: Int
-- weightKg: Double?
-- durationSeconds: Int?
-- completed: Boolean
-
-Workout 1:N ExerciseSet
-
-## 16. NutritionRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- date: Long
-- calories: Double
-- proteinGrams: Double
-- carbsGrams: Double
-- fatGrams: Double
-- waterMl: Double?
-- targetCalories: Double?
-- targetProteinGrams: Double?
-- targetCarbsGrams: Double?
-- targetFatGrams: Double?
-
-No individual meal entity in MVP.
-
-## 17. SleepRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- sleepStart: Long
-- sleepEnd: Long
-- durationMinutes: Int
-- quality: Double?
-- nap: Boolean
-- source: String
-
-## 18. AcademicRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- type: String
-- title: String
-- subject: String?
-- deadline: Long?
-- progress: Double
-- score: Double?
-- weakAreasJson: String?
-- completedAt: Long?
-
-Types:
-ASSIGNMENT
-EXAM
-STUDY_SESSION
-PRACTICAL
-PROJECT
-TEST
-
-## 19. SkillRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- skillName: String
-- category: String
-- level: Double
-- practiceMinutes: Int
-- projectName: String?
-- result: Double?
-- timestamp: Long
-
-## 20. MusicRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- timestamp: Long
-- practiceMinutes: Int
-- piece: String?
-- technique: String?
-- skillLevel: Double?
-- performanceScore: Double?
-
-## 21. FinanceRecord
-
-Fields:
-- id: String PK
-- userId: String FK User
-- timestamp: Long
-- type: String
-- category: String
-- amount: Double
-- description: String?
-- source: String
-- linkedGoalId: String?
-
-Types:
-INCOME
-EXPENSE
-SAVING
-TRANSFER
-
-## 22. Budget
-
-Fields:
-- id: String PK
-- userId: String FK User
-- category: String
-- periodStart: Long
-- periodEnd: Long
-- limitAmount: Double
-- createdAt: Long
-
-## 23. DigitalLifeRecord
-
-V2 entity.
-
-Fields:
-- id: String PK
-- userId: String FK User
-- date: Long
-- totalScreenMinutes: Int
-- productiveMinutes: Int
-- unproductiveMinutes: Int
-- pickups: Int
-- notifications: Int
-- appDataJson: String
-
-## 24. AIInteraction
-
-V1/V2 foundation for traceability.
-
-Fields:
-- id: String PK
-- userId: String FK User
-- timestamp: Long
-- type: String
-- userMessage: String?
-- responseSummary: String?
-- recommendationId: String?
-- confidence: String?
-- accepted: Boolean?
-- feedback: String?
-
-## 25. AIRecommendation
-
-Fields:
-- id: String PK
-- userId: String FK User
-- timestamp: Long
-- type: String
-- title: String
-- explanation: String
-- priority: Int
-- impactScore: Double
-- urgencyScore: Double
-- confidenceScore: Double
-- relevanceScore: Double
-- readinessScore: Double
-- finalDecisionScore: Double
-- status: String
-- relatedGoalId: String?
-- relatedTaskId: String?
-
-Statuses:
-PROPOSED
-ACCEPTED
-MODIFIED
-REJECTED
-COMPLETED
-EXPIRED
-
-## 26. DailyPlan
-
-Fields:
-- id: String PK
-- userId: String FK User
-- date: Long
-- generatedAt: Long
-- version: Int
-- status: String
-- reasoningSummary: String?
-
-## 27. DailyPlanItem
-
-Fields:
-- id: String PK
-- dailyPlanId: String FK DailyPlan
-- taskId: String? FK Task
-- startTime: Long?
-- endTime: Long?
-- orderIndex: Int
-- status: String
-- plannedMinutes: Int?
-
-## 28. UserPreference
-
-Fields:
-- id: String PK
-- userId: String FK User
-- key: String
-- value: String
-- updatedAt: Long
-
-Examples:
-coach_mode=normal
-notifications_enabled=true
-
-## 29. IntegrationConnection
-
-Fields:
-- id: String PK
-- userId: String FK User
-- provider: String
-- enabled: Boolean
-- permissionState: String
-- lastSyncAt: Long?
-- metadataJson: String?
-
-## 30. CorrelationResult
-
-Derived/replaceable analytical result.
-
-Fields:
-- id: String PK
-- userId: String FK User
-- metricA: String
-- metricB: String
-- correlationValue: Double
-- sampleSize: Int
-- confidence: Double
-- generatedAt: Long
-- interpretation: String
-
-Must never be treated as causal proof.
-
-## 31. Relationships
-
-User:
-â”œâ”€â”€ Character
-â”œâ”€â”€ Goals
-â”œâ”€â”€ Tasks
-â”œâ”€â”€ Events
-â”œâ”€â”€ XP Transactions
-â”œâ”€â”€ Challenges
-â”œâ”€â”€ Tracking records
-â”œâ”€â”€ AI interactions
-â”œâ”€â”€ AI recommendations
-â”œâ”€â”€ Daily plans
-â”œâ”€â”€ Preferences
-â””â”€â”€ Integrations
-
-Character:
-â””â”€â”€ Attributes
-
-Attribute:
-â””â”€â”€ AttributeHistory
-
-Goal:
-â”œâ”€â”€ child Goals
-â”œâ”€â”€ Milestones
-â””â”€â”€ Tasks
-
-Task:
-â””â”€â”€ Events
-
-Event:
-â””â”€â”€ XPTransactions
-
-Workout:
-â””â”€â”€ ExerciseSets
-
-DailyPlan:
-â””â”€â”€ DailyPlanItems
-
-## 32. Indexes
+- Define the progress range, normally 0–100 for percentage-based goals.
+- Parent and child goals must belong to the same user.
+- Circular parent relationships are prohibited.
+- Completion/archive preserves history.
+- The progress mode defines the authoritative source of progress.
+- Rewards must not duplicate rewards from the same result.
+
+### GoalMilestone
+Fields: id (PK), goalId (FK), name, description (optional), targetValue (optional), currentValue (optional), unit (optional), orderIndex, completed, xpReward (optional), createdAt, completedAt (optional).
+
+Relationship: Goal 1:N GoalMilestone. Completion must be idempotent.
+
+### Task
+Fields: id (PK), userId (FK), goalId (optional FK), name, description (optional), category, priority, difficulty (optional), estimatedMinutes (optional), actualMinutes (optional), scheduledStart (optional), scheduledEnd (optional), deadline (optional), status, createdAt, updatedAt, completedAt (optional), cancelledAt (optional).
+
+Statuses: PENDING, IN_PROGRESS, COMPLETED, POSTPONED, CANCELLED.
+
+Rules: scheduled end follows start; durations are positive; rescheduling preserves history; completion can create a TaskCompletion event only once; task completion is not automatically proof of the real-world outcome.
+
+## 5. Event history and XP ledger
+
+### Event
+A normalized record of an action or occurrence. Domain tables hold structured details that do not belong in the shared event.
+
+Fields: id (PK), userId (FK), type, category, source, occurredAt, durationSeconds (optional), difficulty (optional), quality (optional), result (optional), goalId (optional FK), taskId (optional FK), relatedEntityType (optional), relatedEntityId (optional), metadataJson (optional), validationStatus, validationReason (optional), createdAt, updatedAt.
+
+Types may include STUDY, WORKOUT, EXERCISE_SET, CODING, MUSIC_PRACTICE, SLEEP, NUTRITION_SUMMARY, EXPENSE, INCOME, TASK_COMPLETION, GOAL_MILESTONE, CHALLENGE_PROGRESS, RECOVERY, and MANUAL_ACTIVITY.
+
+Sources may include MANUAL, SYSTEM, HEALTH_CONNECT, USAGE_STATS, CALENDAR, GITHUB, IMPORT, and AI_PROPOSED. AI-proposed records must be confirmed or explicitly authorized before being treated as observed activity.
+
+Validation statuses: VALID, SUSPICIOUS, DUPLICATE, REJECTED.
+
+Rules:
+- Keep flagged source records inspectable unless the user deletes them or another policy requires removal.
+- Duplicate events are not eligible for another progression reward.
+- Frequently queried domain details belong in typed tables, not metadataJson.
+- Imported records should retain source identifiers or idempotency keys.
+
+### XPTransaction
+Fields: id (PK), userId (FK), eventId (optional FK), attributeId (optional FK), type, baseXp, calculationJson, finalXp, reason, ruleVersion, idempotencyKey (unique), timestamp.
+
+Types: ACTION, CONSISTENCY, GROWTH, CHALLENGE, RECOVERY, DISCIPLINE, LEARNING.
+
+Rules:
+- Ledger entries are append-only in normal operation.
+- Corrections use reversal/adjustment entries rather than silent edits.
+- Unique idempotency keys prevent repeated rewards.
+- XP is deterministic; no unconstrained AI adjustment.
+- Internal fractional calculations must have explicit rounding rules; persisted XP is integer.
+- Character and attribute totals must be reconcilable with the ledger.
+
+## 6. Challenges
+
+Fields: id (PK), userId (FK), name, description (optional), type, difficulty, targetJson with schema version, startAt, endAt, progress, status, xpReward (optional), createdAt, completedAt (optional).
+
+Types may include DAILY, WEEKLY, MONTHLY, SKILL_TEST, PHYSICAL, ACADEMIC, FINANCE, TIME, STREAK, EXPERIMENT, and later BOSS. Statuses may include AVAILABLE, ACTIVE, COMPLETED, FAILED, EXPIRED, LOCKED. Implement after the core progression model is stable.
+
+## 7. Domain-specific tracking
+
+These are target models. Add each table when its feature is implemented.
+
+### BodyRecord
+id, userId, occurredAt, weightKg (optional), steps (optional), walkingDistanceMeters (optional), energyScore (optional), recoveryScore (optional), source.
+
+### Workout and ExerciseSet
+Workout: id, userId, occurredAt, type, durationSeconds, difficulty (optional), performanceScore (optional), notes (optional).  
+ExerciseSet: id, workoutId (FK), exerciseName, setNumber, reps (optional), loadGrams (optional), durationSeconds (optional), completed.
+
+Relationship: Workout 1:N ExerciseSet. Define load units and conversions in code.
+
+### NutritionRecord
+id, userId, localDate, calories (optional), proteinGrams (optional), carbsGrams (optional), fatGrams (optional), waterMl (optional), daily target fields (optional), createdAt, updatedAt.
+
+Use a defined daily aggregation policy. No detailed meal diary is required initially.
+
+### SleepRecord
+id, userId, sleepStart, sleepEnd, durationMinutes, quality (optional), isNap, source.
+
+Validate start/end and consistency between interval and duration.
+
+### AcademicRecord
+id, userId, type, title, subject (optional), deadline (optional), progress, score (optional), weakAreasJson (optional), completedAt (optional), createdAt, updatedAt.
+
+Types may include ASSIGNMENT, EXAM, STUDY_SESSION, PRACTICAL, PROJECT, TEST.
+
+### Skill and practice history
+The product needs stable skill identity plus repeated practice history. A simple SkillRecord may start the feature, but separate Skill and SkillSession entities are preferable when one current record cannot preserve multiple sessions. Fields may include skill name/category/level, practice duration, project, result, occurrence time, and notes.
+
+### MusicRecord
+id, userId, occurredAt, practiceMinutes, piece (optional), technique (optional), skillLevel (optional), performanceScore (optional), notes (optional).
+
+### FinanceRecord
+id, userId, occurredAt, type, category, amountMinor, currencyCode, description (optional), source, linkedGoalId (optional).
+
+Types: INCOME, EXPENSE, SAVING, TRANSFER. Transfers must not be counted as income/expense unless a report explicitly defines that treatment.
+
+### Budget
+id, userId, category, periodStart, periodEnd, limitMinor, currencyCode, createdAt.
+
+Define the date and time-zone semantics for budget periods.
+
+### DigitalLifeRecord (future)
+id, userId, localDate, totalScreenMinutes, productiveMinutes (optional), unproductiveMinutes (optional), pickups (optional), notifications (optional), appDataJson (optional), source.
+
+Productive/unproductive classifications must be transparent or user-defined; screen time alone is not a moral score.
+
+## 8. Planning, preferences, and recommendations
+
+### DailyPlan
+id, userId, localDate, timeZoneId, generatedAt, version, status, reasoningSummary (optional).
+
+Constraint: unique(userId, localDate, version). Preserve earlier versions when useful for plan-versus-actual analysis.
+
+### DailyPlanItem
+id, dailyPlanId (FK), taskId (optional FK), startAt (optional), endAt (optional), orderIndex, status, plannedMinutes (optional).
+
+An item may represent a task or a protected block such as a break. Validate overlapping blocks according to planning rules.
+
+### UserPreference
+id, userId (FK), key, value, updatedAt. Constraint: unique(userId, key). Use typed/validated settings where practical rather than storing core business data as arbitrary strings.
+
+### AIRecommendation
+id, userId, createdAt, type, title, explanation, priority, confidence, evidenceJson, status, relatedGoalId (optional), relatedTaskId (optional), outcomeFeedback (optional).
+
+Statuses: PROPOSED, ACCEPTED, MODIFIED, REJECTED, COMPLETED, EXPIRED. Define scoring semantics before persisting opaque impact/urgency/relevance/readiness numbers.
+
+### AIInteraction (future traceability)
+id, userId, occurredAt, type, userMessage (optional), responseSummary (optional), recommendationId (optional), confidence (optional), accepted (optional), feedback (optional), modelIdentifier (optional).
+
+Store only what is needed for audit and user-facing history. Do not retain full sensitive conversations by default.
+
+### IntegrationConnection (future)
+id, userId, provider, enabled, permissionState, lastSyncAt (optional), metadataJson (optional).
+
+Tokens and secrets belong in secure platform storage or a properly secured backend, never as plain text here.
+
+## 9. Derived analytics
+
+### CorrelationResult (optional cache)
+id, userId, metricA, metricB, correlationValue, sampleSize, confidence (optional), generatedAt, interpretation (optional), algorithmVersion.
+
+This is replaceable derived data, not source-of-truth data. Show sample size and limitations. Never present correlation as causal proof.
+
+Persist aggregates only when performance or stable snapshots justify it. Prefer recalculation from source records until profiling demonstrates a need for caching.
+
+## 10. Relationships
+
+- User → Character, Goals, Tasks, Events, XPTransactions, Challenges, tracking records, plans, preferences, recommendations, integrations.
+- Character → Attributes → AttributeHistory.
+- Goal → child Goals, GoalMilestones, Tasks.
+- Task → Events → XPTransactions.
+- Workout → ExerciseSets.
+- DailyPlan → DailyPlanItems.
+- AIRecommendation → optional goal/task references.
+
+Use Room relations or explicit repository queries as appropriate. Avoid loading a large nested graph for every screen.
+
+## 11. Indexes and constraints
 
 Recommended indexes:
-- Event(userId, timestamp)
-- Event(userId, type, timestamp)
+- Event(userId, occurredAt)
+- Event(userId, type, occurredAt)
 - Goal(userId, status, deadline)
+- Goal(parentGoalId)
 - Task(userId, status, deadline)
+- Task(goalId, status)
 - XPTransaction(userId, timestamp)
+- XPTransaction(eventId)
 - AttributeHistory(attributeId, timestamp)
-- FinanceRecord(userId, timestamp)
+- FinanceRecord(userId, occurredAt)
 - SleepRecord(userId, sleepStart)
-- DailyPlan(userId, date)
+- DailyPlan(userId, localDate)
 
-## 33. Data lifecycle
+Important uniqueness constraints include Character(userId), Attribute(characterId, type), UserPreference(userId, key), and XPTransaction(idempotencyKey). Add indexes based on actual query patterns.
 
-Input:
-manual/integration
+## 12. Atomic event-to-progression flow
 
-â†’ normalization
+1. Validate input.
+2. Normalize units and source identifiers.
+3. Check duplicates and idempotency rules.
+4. Persist domain record and event.
+5. Determine progression eligibility using deterministic rules.
+6. Insert XP ledger entries.
+7. Update character/attribute projections and history.
+8. Commit related database changes atomically where possible.
 
-â†’ raw record/event
+If a later step fails, the system must not leave an event rewarded twice or a current XP total that disagrees with its ledger. Cross-transaction flows must be resumable and idempotent.
 
-â†’ validation
+## 13. Corrections, deletion, and migrations
 
-â†’ domain processing
+- Corrections preserve the audit trail required to explain changes.
+- XP corrections use reversal/adjustment entries.
+- User deletion follows an explicit deletion policy.
+- Imported records remain distinguishable from manual records.
+- Every schema change increments the Room database version and has a migration path and test.
+- Never use destructive migration for user data in production unless the user explicitly chose a reset.
 
-â†’ XP/state updates
+## 14. Implementation order
 
-â†’ analytics
+1. User, Character, Attribute.
+2. Goal, GoalMilestone, Task.
+3. Event, XPTransaction, AttributeHistory.
+4. DailyPlan and DailyPlanItem.
+5. Tracking tables alongside each domain.
+6. AIRecommendation and AIInteraction when recommendations exist.
+7. IntegrationConnection and DigitalLifeRecord when integrations exist.
+8. Optional analytics caches only after profiling.
 
-â†’ AI context
+## 15. Example
 
-Derived values must be recalculable from stored source data.
+For an 80-minute workout, Workout stores structured details, Event records the normalized occurrence and source, validation checks fields and duplicates, XPTransaction explains any reward, Attribute/Character projections update, and AttributeHistory records the change. Analytics and recommendations may use this history later.
 
-## 34. Example workout event
-
-type=WORKOUT
-category=BODY
-source=MANUAL
-durationMinutes=80
-difficulty=0.8
-quality=0.9
-result=0.85
-
-Pipeline:
-Workout â†’ Event â†’ XP Engine â†’ Body Attribute â†’ Character â†’ Analytics â†’ AI
+The database should answer both “What is the current score?” and “Which records and rules produced it?”
